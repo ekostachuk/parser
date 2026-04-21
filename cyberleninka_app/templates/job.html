@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Задача {{ job.query }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% if job.status == "running" %}
+    <meta http-equiv="refresh" content="3">
+  {% endif %}
+</head>
+<body>
+  <main class="page">
+    <a class="back-link" href="{{ url_for('index') }}">← Назад к запуску</a>
+
+    <section class="card detail-card">
+      <div class="detail-head">
+        <div>
+          <p class="eyebrow">Задача {{ job.job_id }}</p>
+          <h1>{{ job.query }}</h1>
+          <p class="subtitle">Статус: <span class="badge badge-{{ job.status }}">{{ job.status }}</span></p>
+        </div>
+        {% if job.status == "running" %}
+          <form method="post" action="{{ url_for('cancel_job', job_id=job.job_id) }}">
+            <button class="secondary" type="submit">Остановить</button>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="progress-block">
+        <div class="progress-meta">
+          <span>Обработано: {{ job.processed }} из {{ job.total or "?" }}</span>
+          <span>Найдено итоговых статей: {{ job.found_records }}</span>
+        </div>
+        {% set percent = 0 if not job.total else ((job.processed / job.total) * 100) %}
+        <div class="progress-track">
+          <div class="progress-bar" style="width: {{ percent|round(1) }}%"></div>
+        </div>
+      </div>
+
+      {% if job.result_paths %}
+        <div class="downloads">
+          <a class="primary" href="{{ url_for('download_result', job_id=job.job_id, fmt='xlsx') }}">Скачать XLSX</a>
+          <a class="primary" href="{{ url_for('download_result', job_id=job.job_id, fmt='csv') }}">Скачать CSV</a>
+          <a class="primary" href="{{ url_for('download_result', job_id=job.job_id, fmt='json') }}">Скачать JSON</a>
+        </div>
+      {% endif %}
+
+      {% if job.error %}
+        <div class="flash">{{ job.error }}</div>
+      {% endif %}
+    </section>
+
+    <section class="card log-card">
+      <div class="log-head">
+        <h2>Лог выполнения</h2>
+        <span class="meta">{{ job.logs|length }} сообщений</span>
+      </div>
+      <pre class="log-output">{% for line in job.logs %}{{ line }}
+{% endfor %}</pre>
+    </section>
+  </main>
+</body>
+</html>

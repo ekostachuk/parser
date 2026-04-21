@@ -1,0 +1,267 @@
+:root {
+  --bg: #f4efe7;
+  --card: #fffdf9;
+  --line: #d8cfc2;
+  --text: #1d232b;
+  --muted: #66707c;
+  --accent: #146356;
+  --accent-strong: #0f4e44;
+  --danger: #a93f37;
+  --shadow: 0 14px 32px rgba(22, 33, 41, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "SF Pro Text", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(20, 99, 86, 0.12), transparent 28%),
+    linear-gradient(180deg, #fbf6ee 0%, var(--bg) 100%);
+}
+
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+
+.hero,
+.grid,
+.detail-card,
+.log-card {
+  margin-bottom: 20px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.hero-note,
+.card {
+  background: var(--card);
+  border: 1px solid rgba(29, 35, 43, 0.08);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+}
+
+.hero-note,
+.card {
+  padding: 22px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+h1,
+h2 {
+  margin: 0 0 10px;
+}
+
+.subtitle,
+.meta,
+.empty,
+label span {
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 20px;
+}
+
+.form-card form,
+.form-card {
+  display: grid;
+  gap: 14px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+}
+
+input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font: inherit;
+}
+
+input:focus {
+  outline: none;
+  border-color: rgba(20, 99, 86, 0.55);
+  box-shadow: 0 0 0 4px rgba(20, 99, 86, 0.12);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+button,
+a.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 12px 16px;
+  border: none;
+  text-decoration: none;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button.primary,
+a.primary,
+.primary {
+  background: var(--accent);
+  color: white;
+}
+
+button.secondary {
+  background: rgba(169, 63, 55, 0.1);
+  color: var(--danger);
+}
+
+.job-list {
+  display: grid;
+  gap: 10px;
+}
+
+.job-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  text-decoration: none;
+  color: inherit;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(20, 99, 86, 0.04);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badge-running {
+  background: rgba(20, 99, 86, 0.14);
+  color: var(--accent-strong);
+}
+
+.badge-done {
+  background: rgba(20, 99, 86, 0.18);
+  color: var(--accent-strong);
+}
+
+.badge-error,
+.badge-cancelled {
+  background: rgba(169, 63, 55, 0.12);
+  color: var(--danger);
+}
+
+.flash-list,
+.flash {
+  margin-bottom: 18px;
+}
+
+.flash {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(169, 63, 55, 0.1);
+  color: var(--danger);
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 16px;
+  color: var(--accent-strong);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.detail-head,
+.progress-meta,
+.downloads,
+.log-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.downloads {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.progress-block {
+  margin-top: 18px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 14px;
+  margin-top: 10px;
+  background: rgba(20, 99, 86, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #146356 0%, #2aa68c 100%);
+}
+
+.log-output {
+  margin: 0;
+  padding: 16px;
+  background: #1c232b;
+  color: #eef4f3;
+  border-radius: 16px;
+  overflow: auto;
+  max-height: 480px;
+  font-family: "SFMono-Regular", "Menlo", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+  .hero,
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-head,
+  .progress-meta,
+  .log-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

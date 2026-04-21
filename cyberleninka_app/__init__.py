@@ -1,0 +1,1 @@
+"""CyberLeninka desktop scraper package."""

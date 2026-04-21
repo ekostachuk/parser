@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+.env
+
+.idea/
+.DS_Store
+
+output/
+gradio_output/
+web_output/
+
+*.log

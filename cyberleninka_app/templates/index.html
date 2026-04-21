@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CyberLeninka Scraper</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Local Browser UI</p>
+        <h1>CyberLeninka Scraper</h1>
+        <p class="subtitle">Запускайте сбор прямо из браузера, следите за прогрессом и скачивайте результаты без отдельного desktop-окна.</p>
+      </div>
+      <div class="hero-note">
+        <strong>Что есть сейчас</strong>
+        <ul>
+          <li>фоновый запуск задач</li>
+          <li>страница статуса с логами</li>
+          <li>отмена текущего прогона</li>
+          <li>скачивание XLSX, CSV и JSON</li>
+        </ul>
+      </div>
+    </section>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <section class="flash-list">
+          {% for message in messages %}
+            <div class="flash">{{ message }}</div>
+          {% endfor %}
+        </section>
+      {% endif %}
+    {% endwith %}
+
+    <section class="grid">
+      <form class="card form-card" method="post" action="{{ url_for('start_job') }}">
+        <h2>Новая задача</h2>
+        <label>
+          <span>Ключевое слово</span>
+          <input type="text" name="query" placeholder="Например: маркетинг" required>
+        </label>
+        <label>
+          <span>Слова-исключения</span>
+          <input type="text" name="exclude" placeholder="Например: медицина, туризм">
+        </label>
+        <div class="row">
+          <label>
+            <span>Год от</span>
+            <input type="text" name="year_from" value="2020" placeholder="2020">
+          </label>
+          <label>
+            <span>Год до</span>
+            <input type="text" name="year_to" value="2026" placeholder="2026">
+          </label>
+        </div>
+        <label>
+          <span>Сколько кандидатов проверить</span>
+          <input type="number" min="1" max="500" name="max_candidates" value="100">
+        </label>
+        <button class="primary" type="submit">Запустить сбор</button>
+      </form>
+
+      <section class="card jobs-card">
+        <h2>Последние задачи</h2>
+        {% if jobs %}
+          <div class="job-list">
+            {% for job in jobs %}
+              <a class="job-item" href="{{ url_for('job_detail', job_id=job.job_id) }}">
+                <div>
+                  <strong>{{ job.query }}</strong>
+                  <div class="meta">{{ job.created_at.strftime('%d.%m.%Y %H:%M:%S') }}</div>
+                </div>
+                <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty">Пока задач нет. Запустите первую справа.</p>
+        {% endif %}
+      </section>
+    </section>
+  </main>
+</body>
+</html>
