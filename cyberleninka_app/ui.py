@@ -8,12 +8,12 @@ from queue import Empty, Queue
 from tkinter import filedialog, messagebox, ttk
 
 from .models import ScrapeSettings
-from .scraper import CyberLeninkaScraper, ScrapingCancelled
+from .scraper import SOURCE_LABELS, SUPPORTED_SEARCH_SOURCES, CyberLeninkaScraper, ScrapingCancelled
 
 PRESET_VALUES = {
-    "Быстрый обзор (30)": 30,
-    "Стандартный поиск (100)": 100,
-    "Глубокий поиск (200)": 200,
+    "Быстрый обзор (50)": 50,
+    "Стандартный поиск (200)": 200,
+    "Глубокий поиск (400)": 400,
 }
 
 
@@ -33,17 +33,21 @@ class ScraperApp(tk.Tk):
         default_output = project_root / "output"
 
         self.query_var = tk.StringVar()
+        self.author_var = tk.StringVar()
         self.exclude_var = tk.StringVar()
         self.year_from_var = tk.StringVar(value="2020")
         self.year_to_var = tk.StringVar(value="2026")
-        self.max_candidates_var = tk.StringVar(value="100")
-        self.preset_var = tk.StringVar(value="Стандартный поиск (100)")
+        self.max_candidates_var = tk.StringVar(value="200")
+        self.preset_var = tk.StringVar(value="Стандартный поиск (200)")
         self.output_dir_var = tk.StringVar(value=str(default_output))
         self.status_var = tk.StringVar(value="Готово к запуску")
         self.detail_var = tk.StringVar(value="Введите тему, при необходимости добавьте исключения и запустите сбор.")
         self.progress_var = tk.DoubleVar(value=0.0)
         self.result_var = tk.StringVar(value="Результаты пока не созданы")
         self.log_count_var = tk.StringVar(value="0 сообщений в логе")
+        self.source_vars: dict[str, tk.BooleanVar] = {
+            source: tk.BooleanVar(value=True) for source in (*SUPPORTED_SEARCH_SOURCES, "google_scholar")
+        }
 
         self._configure_styles()
         self._build_layout()
@@ -90,41 +94,68 @@ class ScraperApp(tk.Tk):
         self.query_entry.grid(row=1, column=0, columnspan=4, sticky="ew")
         ttk.Label(
             controls,
-            text="Например: маркетинг, стартап, цифровая трансформация",
+            text="Можно несколько слов и фраз через запятую, например: маркетинг, стартап, цифровая трансформация",
             style="Muted.TLabel",
         ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 10))
 
-        ttk.Label(controls, text="Слова-исключения").grid(row=3, column=0, sticky="w", pady=(0, 4))
-        ttk.Entry(controls, textvariable=self.exclude_var).grid(row=4, column=0, columnspan=4, sticky="ew")
+        ttk.Label(controls, text="Автор").grid(row=3, column=0, sticky="w", pady=(0, 4))
+        ttk.Entry(controls, textvariable=self.author_var).grid(row=4, column=0, columnspan=4, sticky="ew")
+        ttk.Label(
+            controls,
+            text="Можно указать фамилию или фамилию с инициалами. Работает как отдельный фильтр и как часть поиска.",
+            style="Muted.TLabel",
+        ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 10))
+
+        ttk.Label(controls, text="Слова-исключения").grid(row=6, column=0, sticky="w", pady=(0, 4))
+        ttk.Entry(controls, textvariable=self.exclude_var).grid(row=7, column=0, columnspan=4, sticky="ew")
         ttk.Label(
             controls,
             text="Через запятую. Формы слов тоже стараемся отлавливать: медицина -> медицинских, медицинский",
             style="Muted.TLabel",
-        ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 10))
+        ).grid(row=8, column=0, columnspan=4, sticky="w", pady=(4, 10))
 
-        ttk.Label(controls, text="Год от").grid(row=6, column=0, sticky="w")
-        ttk.Label(controls, text="Год до").grid(row=6, column=1, sticky="w")
-        ttk.Label(controls, text="Режим").grid(row=6, column=2, sticky="w")
-        ttk.Label(controls, text="Кандидатов").grid(row=6, column=3, sticky="w")
+        ttk.Label(controls, text="Ссылки для ручного парсинга").grid(row=9, column=0, sticky="w", pady=(0, 4))
+        self.manual_urls_text = tk.Text(controls, height=5, wrap="word")
+        self.manual_urls_text.grid(row=10, column=0, columnspan=4, sticky="ew")
+        ttk.Label(
+            controls,
+            text="По одной ссылке на строку. Можно комбинировать с обычным поиском, дубли будут пропущены.",
+            style="Muted.TLabel",
+        ).grid(row=11, column=0, columnspan=4, sticky="w", pady=(4, 10))
 
-        ttk.Entry(controls, textvariable=self.year_from_var, width=10).grid(row=7, column=0, sticky="ew", padx=(0, 8))
-        ttk.Entry(controls, textvariable=self.year_to_var, width=10).grid(row=7, column=1, sticky="ew", padx=(0, 8))
+        ttk.Label(controls, text="Источники").grid(row=12, column=0, sticky="w", pady=(0, 4))
+        source_frame = ttk.Frame(controls)
+        source_frame.grid(row=13, column=0, columnspan=4, sticky="ew")
+        for index, source in enumerate((*SUPPORTED_SEARCH_SOURCES, "google_scholar")):
+            ttk.Checkbutton(
+                source_frame,
+                text=SOURCE_LABELS.get(source, source),
+                variable=self.source_vars[source],
+            ).grid(row=index // 3, column=index % 3, sticky="w", padx=(0, 12), pady=(0, 4))
+
+        ttk.Label(controls, text="Год от").grid(row=14, column=0, sticky="w")
+        ttk.Label(controls, text="Год до").grid(row=14, column=1, sticky="w")
+        ttk.Label(controls, text="Режим").grid(row=14, column=2, sticky="w")
+        ttk.Label(controls, text="Лимит статей").grid(row=14, column=3, sticky="w")
+
+        ttk.Entry(controls, textvariable=self.year_from_var, width=10).grid(row=15, column=0, sticky="ew", padx=(0, 8))
+        ttk.Entry(controls, textvariable=self.year_to_var, width=10).grid(row=15, column=1, sticky="ew", padx=(0, 8))
         self.preset_combo = ttk.Combobox(
             controls,
             textvariable=self.preset_var,
             values=list(PRESET_VALUES.keys()),
             state="readonly",
         )
-        self.preset_combo.grid(row=7, column=2, sticky="ew", padx=(0, 8))
+        self.preset_combo.grid(row=15, column=2, sticky="ew", padx=(0, 8))
         self.preset_combo.bind("<<ComboboxSelected>>", self._apply_preset)
-        ttk.Entry(controls, textvariable=self.max_candidates_var, width=10).grid(row=7, column=3, sticky="ew")
+        ttk.Entry(controls, textvariable=self.max_candidates_var, width=10).grid(row=15, column=3, sticky="ew")
 
-        ttk.Label(controls, text="Папка для сохранения").grid(row=8, column=0, sticky="w", pady=(12, 4))
-        ttk.Entry(controls, textvariable=self.output_dir_var).grid(row=9, column=0, columnspan=3, sticky="ew")
-        ttk.Button(controls, text="Выбрать папку", command=self._choose_output_dir).grid(row=9, column=3, sticky="ew", padx=(8, 0))
+        ttk.Label(controls, text="Папка для сохранения").grid(row=16, column=0, sticky="w", pady=(12, 4))
+        ttk.Entry(controls, textvariable=self.output_dir_var).grid(row=17, column=0, columnspan=3, sticky="ew")
+        ttk.Button(controls, text="Выбрать папку", command=self._choose_output_dir).grid(row=17, column=3, sticky="ew", padx=(8, 0))
 
         actions = ttk.Frame(controls)
-        actions.grid(row=10, column=0, columnspan=4, sticky="ew", pady=(14, 0))
+        actions.grid(row=18, column=0, columnspan=4, sticky="ew", pady=(14, 0))
         actions.columnconfigure(4, weight=1)
 
         self.start_button = ttk.Button(actions, text="Запустить сбор", style="Accent.TButton", command=self._start_scraping)
@@ -207,21 +238,27 @@ class ScraperApp(tk.Tk):
 
     def _collect_settings(self) -> ScrapeSettings:
         query = self.query_var.get().strip()
-        if not query:
-            raise ValueError("Введите ключевое слово.")
+        author_raw = self.author_var.get().strip()
+        manual_urls_raw = self.manual_urls_text.get("1.0", "end").strip()
+        if not query and not author_raw and not manual_urls_raw:
+            raise ValueError("Введите ключевое слово, автора или хотя бы одну ссылку для ручного парсинга.")
 
         try:
             max_candidates = int(self.max_candidates_var.get().strip())
         except ValueError as exc:
             raise ValueError("Количество кандидатов должно быть целым числом.") from exc
+        selected_sources = tuple(source for source, variable in self.source_vars.items() if variable.get())
 
         return ScrapeSettings(
             query=query,
+            author_raw=author_raw,
             exclude_raw=self.exclude_var.get().strip(),
             year_from_raw=self.year_from_var.get().strip(),
             year_to_raw=self.year_to_var.get().strip(),
             max_candidates=max_candidates,
+            manual_urls_raw=manual_urls_raw,
             output_dir=Path(self.output_dir_var.get().strip()),
+            selected_sources=selected_sources,
         )
 
     def _start_scraping(self) -> None:
@@ -240,7 +277,7 @@ class ScraperApp(tk.Tk):
         self._last_paths = None
         self.progress_var.set(0)
         self.status_var.set("Сбор запущен")
-        self.detail_var.set("Сначала соберем кандидатов, потом отфильтруем и сохраним результаты в три формата.")
+        self.detail_var.set("Сначала обработаем ручные ссылки, затем добавим результаты поиска по теме и автору, после чего сохраним итог в три формата.")
         self.result_var.set(f"Результаты будут сохранены в: {settings.output_dir}")
         self._set_running_state(True)
 
@@ -271,8 +308,8 @@ class ScraperApp(tk.Tk):
             stop_callback=self._stop_event.is_set,
         )
         try:
-            records, paths = scraper.run_scraping(settings)
-            self._events.put(("done", (records, paths)))
+            records, paths, report = scraper.run_scraping(settings)
+            self._events.put(("done", (records, paths, report)))
         except ScrapingCancelled as exc:
             self._events.put(("cancelled", str(exc)))
         except Exception as exc:
@@ -295,7 +332,7 @@ class ScraperApp(tk.Tk):
                         "Если кандидатов много, это нормально: сначала мы отсекаем неподходящие статьи, потом сохраняем итог."
                     )
                 elif event_name == "done":
-                    records, paths = payload
+                    records, paths, report = payload
                     self._last_paths = paths
                     self._set_running_state(False)
                     self.progress_var.set(100)
@@ -310,9 +347,11 @@ class ScraperApp(tk.Tk):
                         "Готово",
                         "Сбор завершен.\n\n"
                         f"Найдено статей: {len(records)}\n"
+                        f"Исключено: {len(report.exclusion_rows)}\n"
                         f"XLSX: {paths['xlsx']}\n"
                         f"CSV: {paths['csv']}\n"
-                        f"JSON: {paths['json']}",
+                        f"JSON: {paths['json']}\n"
+                        f"Отчёт по исключениям CSV: {paths.get('excluded_csv', '')}",
                     )
                 elif event_name == "cancelled":
                     self._set_running_state(False)
