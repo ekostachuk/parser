@@ -53,7 +53,7 @@ def _build_preview_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     if not rows:
         return _placeholder_dataframe(
             ["Название", "Авторы статьи", "Найдено по словам", "Год"],
-            "После завершения сбора здесь появятся найденные статьи.",
+            "После завершения сбора здесь появится список найденных статей.",
         )
     preview_rows = [
         {
@@ -90,7 +90,7 @@ def _build_source_dashboard(report: ScrapeReport) -> pd.DataFrame:
     if not rows:
         return _placeholder_dataframe(
             ["Источник", "Кандидатов", "Сохранено"],
-            "Данные по источникам появятся после завершения сбора.",
+            "Данные по источникам появятся после завершения поиска.",
         )
     return pd.DataFrame(rows)
 
@@ -108,7 +108,7 @@ def _build_query_dashboard(rows: list[dict[str, object]]) -> pd.DataFrame:
     if not dashboard_rows:
         return _placeholder_dataframe(
             ["Слово поиска", "Статей"],
-            "Статистика по словам поиска появится, когда найдутся статьи по теме.",
+            "Статистика по словам поиска появится после завершения поиска.",
         )
     return pd.DataFrame(dashboard_rows)
 
@@ -129,7 +129,7 @@ def _build_author_dashboard(records: list[ArticleRecord]) -> pd.DataFrame:
     if not rows:
         return _placeholder_dataframe(
             ["Фамилия автора", "Статей"],
-            "Популярные авторы появятся после завершения сбора.",
+            "Популярные авторы появятся после завершения поиска.",
         )
     return pd.DataFrame(rows)
 
@@ -139,7 +139,7 @@ def _build_stats_markdown(report: ScrapeReport, found: int, total: int, processe
         "### Сводка дашборда\n"
         f"- Кандидатов собрано: **{report.total_candidates or total}**\n"
         f"- Обработано: **{report.processed_candidates or processed}**\n"
-        f"- Итоговых статей: **{found}**\n"
+        f"- Найдено статей: **{found}**\n"
         f"- Исключено: **{len(report.exclusion_rows)}**\n"
         f"- Ошибок/неразобранных: **{report.skipped_parse}**"
     )
@@ -148,9 +148,9 @@ def _build_stats_markdown(report: ScrapeReport, found: int, total: int, processe
 def _status_text(stage: str, processed: int, total: int, found: int) -> str:
     if stage == "running":
         suffix = f"{processed} из {total}" if total else "подготовка кандидатов"
-        return f"Статус: выполняется\nОбработано: {suffix}\nНайдено итоговых статей: {found}"
+        return f"Статус: выполняется\nОбработано: {suffix}\nНайдено статей: {found}"
     if stage == "done":
-        return f"Статус: завершено\nНайдено итоговых статей: {found}"
+        return f"Статус: завершено\nНайдено статей: {found}"
     if stage == "error":
         return "Статус: ошибка"
     return "Статус: ожидание"
@@ -188,7 +188,7 @@ def run_scraping_stream(
     author = author.strip()
     manual_urls = manual_urls.strip()
     if not query and not author and not manual_urls:
-        raise gr.Error("Введите ключевое слово, автора или хотя бы одну ссылку для ручного парсинга.")
+        raise gr.Error("Укажите ключевые слова, автора или хотя бы одну ссылку для ручного парсинга.")
 
     output_dir = GRADIO_OUTPUT_ROOT / time.strftime("%Y%m%d_%H%M%S")
     event_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -286,7 +286,7 @@ def run_scraping_stream(
                 stats_markdown = _build_stats_markdown(report, found, total, processed)
                 summary_prefix = "Сбор остановлен пользователем." if report.cancelled else "Сбор завершён."
                 summary = (
-                    f"{summary_prefix} Итоговых статей: {found}\n"
+                    f"{summary_prefix} Найдено статей: {found}\n"
                     f"Исключено записей: {len(report.exclusion_rows)}\n"
                     f"Языки поиска: {', '.join(SEARCH_LANGUAGE_LABELS.get(code, code) for code in (search_languages or ['ru']))} | "
                     f"Страны поиска: {', '.join(SEARCH_COUNTRY_LABELS.get(code, code) for code in (search_countries or ['ru']))}\n"
@@ -369,33 +369,39 @@ def build_app() -> gr.Blocks:
         gr.Markdown(
             """
             <div class="app-shell hero">
-              <p>Browser UI on Gradio</p>
+              <p>Локальный веб-интерфейс на Gradio</p>
               <h1>CyberLeninka Scraper</h1>
-              <p>Ищите статьи по нескольким источникам, следите за прогрессом и скачивайте аккуратно разложенные результаты без отдельного desktop-окна.</p>
+              <p>Ищите научные статьи по нескольким источникам, отслеживайте прогресс в реальном времени и скачивайте готовые выгрузки в удобных форматах.</p>
             </div>
             """
         )
 
         with gr.Row():
             with gr.Column(scale=4):
+                gr.Markdown(
+                    """
+                    > Важно: часть источников может работать нестабильно.
+                    > `eLIBRARY` иногда отвечает медленно или по таймауту, `CyberLeninka` может блокировать отдельные страницы антибот-защитой, а `Google Scholar` доступен только как справочный переключатель без автоматического сбора.
+                    """
+                )
                 query = gr.Textbox(
-                    label="Ключевое слово",
-                    placeholder="Например: маркетинг, стартап, цифровая трансформация",
+                    label="Ключевые слова или фразы",
+                    placeholder="Например: управление знаниями, инновации, предпринимательство",
                     lines=1,
                 )
                 author = gr.Textbox(
                     label="Автор",
-                    placeholder="Например: Леонов или Леонов В. Л.",
+                    placeholder="Например: Иванов или Иванов И. И.",
                     lines=1,
                 )
                 exclude = gr.Textbox(
                     label="Слова-исключения",
-                    placeholder="Например: медицина, туризм",
+                    placeholder="Например: медицина, туризм, спорт",
                     lines=1,
                 )
                 manual_urls = gr.Textbox(
                     label="Ссылки для ручного парсинга",
-                    placeholder="Вставьте ссылки по одной на строку. Дубликаты автоматически пропустятся.",
+                    placeholder="Вставьте ссылки по одной на строку. Дубликаты будут пропущены автоматически.",
                     lines=5,
                 )
                 selected_sources = gr.CheckboxGroup(
@@ -431,10 +437,10 @@ def build_app() -> gr.Blocks:
                 status = gr.Textbox(label="Статус", value="Ожидает запуска", lines=3)
                 summary = gr.Textbox(
                     label="Сводка",
-                    value="После запуска здесь появится ход выполнения и итог по результатам.",
+                    value="После запуска здесь появятся ход выполнения и краткая сводка по результатам.",
                     lines=4,
                 )
-                stats_markdown = gr.Markdown("### Сводка дашборда\n- После запуска здесь появятся ключевые метрики.")
+                stats_markdown = gr.Markdown("### Сводка дашборда\n- После запуска здесь появятся ключевые метрики поиска.")
                 with gr.Tabs():
                     with gr.Tab("Результаты"):
                         table = gr.Dataframe(label="Предпросмотр результатов", interactive=False, wrap=True)
@@ -454,7 +460,7 @@ def build_app() -> gr.Blocks:
                 gr.Markdown(
                     """
                     ### Скачать результаты
-                    Основные файлы собраны отдельно от служебных отчётов, чтобы правая часть интерфейса не перегружала экран.
+                    Основные выгрузки и служебные отчёты разделены, чтобы интерфейс оставался компактным и удобным.
                     """
                 )
                 with gr.Accordion("Основные выгрузки", open=True):
@@ -466,6 +472,16 @@ def build_app() -> gr.Blocks:
                     excluded_json_file = gr.File(label="Отчёт по исключениям JSON", interactive=False)
                     unparsed_csv_file = gr.File(label="Найдено, но не разобрано CSV", interactive=False)
                     unparsed_json_file = gr.File(label="Найдено, но не разобрано JSON", interactive=False)
+                with gr.Accordion("Надёжность источников", open=False):
+                    gr.Markdown(
+                        """
+                        - **CyberLeninka**: обычно работает быстро, но отдельные страницы могут не загрузиться из-за антибот-защиты.
+                        - **eLIBRARY**: самый нестабильный источник по скорости; возможны таймауты и неполный разбор страниц.
+                        - **OpenAlex / Crossref / Semantic Scholar**: обычно стабильны, но чаще дают метаданные, а не полный текст статьи.
+                        - **Google Scholar**: в интерфейсе доступен как ориентир по выбору источника, но автоматический парсинг не используется.
+                        - Если страница не разобралась, ссылка попадёт в отдельный отчёт `Найдено, но не разобрано`.
+                        """
+                    )
 
         start_button.click(
             fn=run_scraping_stream,
