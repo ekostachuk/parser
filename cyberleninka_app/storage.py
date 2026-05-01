@@ -428,10 +428,11 @@ def build_export_rows(records: Sequence[ArticleRecord]) -> list[dict[str, object
         base_row["Источник"] = normalize_space(str(base_row.pop("source", "")))
         parsed_authors = parsed_map.get(record.article_url, [])
         suffix = suffix_map.get(record.article_url, "")
-        score, _, matched_by_field = _compute_relevance(record)
+        score, matched_terms, matched_by_field = _compute_relevance(record)
         tags = _detect_thematic_tags(record)
 
         base_row["Авторы статьи"] = normalize_space(record.authors)
+        base_row["keywords"] = ", ".join(matched_terms)
         base_row["relevance_score"] = score
         base_row["thematic_tags"] = ", ".join(tags)
         base_row["why_relevant"] = _build_why_relevant(record, score, tags, matched_by_field)
@@ -505,8 +506,6 @@ def save_results(records: Sequence[ArticleRecord], output_dir: Path, query_label
         "compact_json": output_dir / f"{base_name}_compact.json",
         "abstract_csv": output_dir / f"{base_name}_abstract.csv",
         "abstract_json": output_dir / f"{base_name}_abstract.json",
-        "fulltext_csv": output_dir / f"{base_name}_fulltext.csv",
-        "fulltext_json": output_dir / f"{base_name}_fulltext.json",
     }
 
     with paths["json"].open("w", encoding="utf-8") as file:
@@ -515,9 +514,6 @@ def save_results(records: Sequence[ArticleRecord], output_dir: Path, query_label
         json.dump(compact_rows, file, ensure_ascii=False, indent=2)
     with paths["abstract_json"].open("w", encoding="utf-8") as file:
         json.dump(abstract_rows, file, ensure_ascii=False, indent=2)
-    with paths["fulltext_json"].open("w", encoding="utf-8") as file:
-        json.dump(rows, file, ensure_ascii=False, indent=2)
-
     dataframe = build_export_dataframe(rows)
     csv_dataframe = dataframe.map(sanitize_for_csv)
     csv_dataframe.to_csv(
@@ -546,15 +542,6 @@ def save_results(records: Sequence[ArticleRecord], output_dir: Path, query_label
         quoting=csv.QUOTE_MINIMAL,
     )
 
-    fulltext_dataframe = build_export_dataframe(rows).map(sanitize_for_csv)
-    fulltext_dataframe.to_csv(
-        paths["fulltext_csv"],
-        index=False,
-        encoding="utf-8-sig",
-        sep=";",
-        quoting=csv.QUOTE_MINIMAL,
-    )
-
     excel_compact_rows = [{key: sanitize_for_excel(value) for key, value in row.items()} for row in compact_rows]
     excel_abstract_rows = [{key: sanitize_for_excel(value) for key, value in row.items()} for row in abstract_rows]
     excel_full_rows = [{key: sanitize_for_excel(value) for key, value in row.items()} for row in rows]
@@ -564,6 +551,8 @@ def save_results(records: Sequence[ArticleRecord], output_dir: Path, query_label
         build_export_dataframe(excel_abstract_rows).to_excel(writer, sheet_name="С абстрактом", index=False)
         build_export_dataframe(excel_full_rows).to_excel(writer, sheet_name="С полным текстом", index=False)
 
+    paths["fulltext_csv"] = paths["csv"]
+    paths["fulltext_json"] = paths["json"]
     return paths
 
 

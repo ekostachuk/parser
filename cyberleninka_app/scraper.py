@@ -6,7 +6,7 @@ import re
 import time
 from functools import lru_cache
 from html import unescape
-from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from urllib.parse import quote_plus, urljoin, urlparse
 
 import requests
@@ -100,6 +100,40 @@ SOURCE_LABELS = {
     "semantic_scholar": "Semantic Scholar",
     "google_scholar": "Google Scholar",
 }
+SEARCH_LANGUAGE_LABELS = {
+    "ru": "Русский",
+    "en": "English",
+    "auto": "Авто",
+}
+SEARCH_COUNTRY_LABELS = {
+    "ru": "Россия",
+    "us": "США",
+    "gb": "Великобритания",
+    "de": "Германия",
+    "fr": "Франция",
+    "kz": "Казахстан",
+    "auto": "Авто",
+}
+DDGS_REGION_MAP = {
+    ("ru", "ru"): "ru-ru",
+    ("ru", "kz"): "kz-ru",
+    ("en", "us"): "us-en",
+    ("en", "gb"): "uk-en",
+    ("en", "de"): "de-en",
+    ("en", "fr"): "fr-en",
+    ("auto", "ru"): "ru-ru",
+    ("auto", "kz"): "kz-ru",
+    ("auto", "us"): "us-en",
+    ("auto", "gb"): "uk-en",
+    ("auto", "de"): "de-de",
+    ("auto", "fr"): "fr-fr",
+    ("auto", "auto"): "ru-ru",
+}
+ACCEPT_LANGUAGE_MAP = {
+    "ru": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    "en": "en-US,en;q=0.9,ru;q=0.4",
+    "auto": DEFAULT_HEADERS["Accept-Language"],
+}
 
 
 def parse_exclude_words(raw_value: str) -> List[str]:
@@ -170,6 +204,61 @@ def normalize_selected_sources(raw_sources: Sequence[str]) -> tuple[str, ...]:
     return tuple(selected)
 
 
+def _normalize_selection(values: Sequence[str] | str | None, allowed: dict[str, str], default: str) -> tuple[str, ...]:
+    if values is None:
+        return (default,)
+    if isinstance(values, str):
+        candidate_values: Iterable[str] = [values]
+    else:
+        candidate_values = values
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in candidate_values:
+        normalized = str(value).strip().lower()
+        if normalized in allowed and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return tuple(result or [default])
+
+
+def normalize_search_languages(values: Sequence[str] | str | None) -> tuple[str, ...]:
+    return _normalize_selection(values, SEARCH_LANGUAGE_LABELS, "ru")
+
+
+def normalize_search_countries(values: Sequence[str] | str | None) -> tuple[str, ...]:
+    return _normalize_selection(values, SEARCH_COUNTRY_LABELS, "ru")
+
+
+def build_ddgs_regions(languages: Sequence[str] | str | None, countries: Sequence[str] | str | None) -> list[str]:
+    normalized_languages = normalize_search_languages(languages)
+    normalized_countries = normalize_search_countries(countries)
+    regions: list[str] = []
+    seen: set[str] = set()
+    for language in normalized_languages:
+        for country in normalized_countries:
+            region = DDGS_REGION_MAP.get((language, country))
+            if not region:
+                region = DDGS_REGION_MAP.get(("auto", country)) or DDGS_REGION_MAP.get((language, "auto")) or "ru-ru"
+            if region not in seen:
+                seen.add(region)
+                regions.append(region)
+    return regions or ["ru-ru"]
+
+
+def build_accept_language(languages: Sequence[str] | str | None) -> str:
+    normalized_languages = normalize_search_languages(languages)
+    parts: list[str] = []
+    seen: set[str] = set()
+    for language in normalized_languages:
+        header = ACCEPT_LANGUAGE_MAP.get(language, DEFAULT_HEADERS["Accept-Language"])
+        for chunk in [item.strip() for item in header.split(",") if item.strip()]:
+            if chunk not in seen:
+                seen.add(chunk)
+                parts.append(chunk)
+    return ",".join(parts) if parts else DEFAULT_HEADERS["Accept-Language"]
+
+
 def detect_source_from_url(raw_url: str) -> str:
     netloc = urlparse(raw_url).netloc.lower()
     if "cyberleninka.ru" in netloc:
@@ -232,6 +321,9 @@ class CyberLeninkaScraper:
         self.session = self._build_session()
         self.driver = None
         self.selenium_enabled = False
+        self.search_languages = ("ru",)
+        self.search_countries = ("ru",)
+        self.ddgs_regions = ["ru-ru"]
 
     def log(self, message: str) -> None:
         self.log_callback(message)
@@ -262,6 +354,12 @@ class CyberLeninkaScraper:
                 pass
         self.driver = None
         self.selenium_enabled = False
+
+    def configure_search_locale(self, languages: Sequence[str] | str | None, countries: Sequence[str] | str | None) -> None:
+        self.search_languages = normalize_search_languages(languages)
+        self.search_countries = normalize_search_countries(countries)
+        self.ddgs_regions = build_ddgs_regions(self.search_languages, self.search_countries)
+        self.session.headers["Accept-Language"] = build_accept_language(self.search_languages)
 
     def sleep_between_requests(self) -> None:
         time.sleep(random.uniform(SLEEP_FROM, SLEEP_TO))
@@ -708,30 +806,33 @@ class CyberLeninkaScraper:
             self.log(f"Поисковый запрос: {search_query}")
             try:
                 with DDGS(timeout=15) as ddgs:
-                    results = ddgs.text(
-                        search_query,
-                        region="ru-ru",
-                        safesearch="off",
-                        max_results=max_results,
-                    )
-                    for item in results:
-                        title = self._clean_text(item.get("title") or "")
-                        snippet = self._clean_text(item.get("body") or "")
-                        href = item.get("href") or item.get("url") or ""
-                        article_url = self._normalize_article_url(href)
-                        if not article_url or article_url in seen:
-                            continue
+                    for region in self.ddgs_regions:
+                        results = ddgs.text(
+                            search_query,
+                            region=region,
+                            safesearch="off",
+                            max_results=max_results,
+                        )
+                        for item in results:
+                            title = self._clean_text(item.get("title") or "")
+                            snippet = self._clean_text(item.get("body") or "")
+                            href = item.get("href") or item.get("url") or ""
+                            article_url = self._normalize_article_url(href)
+                            if not article_url or article_url in seen:
+                                continue
 
-                        haystack = f"{title}\n{snippet}".lower()
-                        if query_terms and not self._matches_any_query(haystack, query_terms):
-                            continue
-                        if author_filter and author_filter not in normalize_for_match(haystack):
-                            continue
-                        if self._matches_exclude_patterns(haystack, exclude_patterns):
-                            continue
+                            haystack = f"{title}\n{snippet}".lower()
+                            if query_terms and not self._matches_any_query(haystack, query_terms):
+                                continue
+                            if author_filter and author_filter not in normalize_for_match(haystack):
+                                continue
+                            if self._matches_exclude_patterns(haystack, exclude_patterns):
+                                continue
 
-                        seen.add(article_url)
-                        candidates.append(SearchCandidate(title=title, snippet=snippet, url=article_url))
+                            seen.add(article_url)
+                            candidates.append(SearchCandidate(title=title, snippet=snippet, url=article_url))
+                            if len(candidates) >= max_results:
+                                break
                         if len(candidates) >= max_results:
                             break
             except Exception as exc:
@@ -850,37 +951,40 @@ class CyberLeninkaScraper:
             self.log(f"Поиск eLIBRARY: {search_query}")
             try:
                 with DDGS(timeout=15) as ddgs:
-                    results = ddgs.text(
-                        search_query,
-                        region="ru-ru",
-                        safesearch="off",
-                        max_results=max_results,
-                    )
-                    for item in results:
-                        title = self._clean_text(item.get("title") or "")
-                        snippet = self._clean_text(item.get("body") or "")
-                        href = item.get("href") or item.get("url") or ""
-                        article_url = self._normalize_candidate_url(href, source="elibrary")
-                        if not article_url or article_url in seen:
-                            continue
-
-                        haystack = f"{title}\n{snippet}".lower()
-                        if query_terms and not self._matches_any_query(haystack, query_terms):
-                            continue
-                        if author_filter and author_filter not in normalize_for_match(haystack):
-                            continue
-                        if self._matches_exclude_patterns(haystack, exclude_patterns):
-                            continue
-
-                        seen.add(article_url)
-                        candidates.append(
-                            SearchCandidate(
-                                title=title,
-                                snippet=snippet,
-                                url=article_url,
-                                source="elibrary",
-                            )
+                    for region in self.ddgs_regions:
+                        results = ddgs.text(
+                            search_query,
+                            region=region,
+                            safesearch="off",
+                            max_results=max_results,
                         )
+                        for item in results:
+                            title = self._clean_text(item.get("title") or "")
+                            snippet = self._clean_text(item.get("body") or "")
+                            href = item.get("href") or item.get("url") or ""
+                            article_url = self._normalize_candidate_url(href, source="elibrary")
+                            if not article_url or article_url in seen:
+                                continue
+
+                            haystack = f"{title}\n{snippet}".lower()
+                            if query_terms and not self._matches_any_query(haystack, query_terms):
+                                continue
+                            if author_filter and author_filter not in normalize_for_match(haystack):
+                                continue
+                            if self._matches_exclude_patterns(haystack, exclude_patterns):
+                                continue
+
+                            seen.add(article_url)
+                            candidates.append(
+                                SearchCandidate(
+                                    title=title,
+                                    snippet=snippet,
+                                    url=article_url,
+                                    source="elibrary",
+                                )
+                            )
+                            if len(candidates) >= max_results:
+                                break
                         if len(candidates) >= max_results:
                             break
             except Exception as exc:
@@ -1603,6 +1707,7 @@ class CyberLeninkaScraper:
         if settings.max_candidates <= 0:
             raise ValueError("Количество кандидатов должно быть больше нуля.")
 
+        self.configure_search_locale(settings.search_languages, settings.search_countries)
         exclude_words = parse_exclude_words(settings.exclude_raw)
         exclude_patterns = build_exclude_patterns(exclude_words)
         report = ScrapeReport()

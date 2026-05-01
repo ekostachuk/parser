@@ -44,6 +44,8 @@ class ScrapeSettings:
     manual_urls_raw: str
     output_dir: Path
     selected_sources: tuple[str, ...] = ()
+    search_languages: tuple[str, ...] = ("ru",)
+    search_countries: tuple[str, ...] = ("ru",)
 
 
 @dataclass(slots=True)

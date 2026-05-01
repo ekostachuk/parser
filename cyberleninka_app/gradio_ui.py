@@ -12,7 +12,13 @@ import gradio as gr
 import pandas as pd
 
 from .models import ArticleRecord, ScrapeReport, ScrapeSettings
-from .scraper import CyberLeninkaScraper, SOURCE_LABELS, SUPPORTED_SEARCH_SOURCES
+from .scraper import (
+    SEARCH_COUNTRY_LABELS,
+    SEARCH_LANGUAGE_LABELS,
+    CyberLeninkaScraper,
+    SOURCE_LABELS,
+    SUPPORTED_SEARCH_SOURCES,
+)
 from .storage import build_export_rows, parse_author_name, split_authors
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -21,14 +27,40 @@ ACTIVE_STOP_EVENT = threading.Event()
 ACTIVE_JOB_LOCK = threading.Lock()
 ACTIVE_JOB_RUNNING = False
 
+LANGUAGE_CHOICES = [
+    ("Русский", "ru"),
+    ("English", "en"),
+    ("Авто", "auto"),
+]
+COUNTRY_CHOICES = [
+    ("Россия", "ru"),
+    ("Казахстан", "kz"),
+    ("США", "us"),
+    ("Великобритания", "gb"),
+    ("Германия", "de"),
+    ("Франция", "fr"),
+    ("Авто", "auto"),
+]
 
-def _records_to_dataframe(records: list[ArticleRecord]) -> pd.DataFrame:
-    rows = build_export_rows(records)
+
+def _placeholder_dataframe(columns: list[str], message: str) -> pd.DataFrame:
+    row = {column: "" for column in columns}
+    row[columns[0]] = message
+    return pd.DataFrame([row])
+
+
+def _build_preview_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
+    if not rows:
+        return _placeholder_dataframe(
+            ["Название", "Авторы статьи", "Найдено по словам", "Год"],
+            "После завершения сбора здесь появятся найденные статьи.",
+        )
     preview_rows = [
         {
             "Источник": row.get("Источник", ""),
             "Название": row["title"],
             "Авторы статьи": row["Авторы статьи"],
+            "Найдено по словам": row.get("keywords", ""),
             "Relevance": row.get("relevance_score", 0),
             "Теги": row.get("thematic_tags", ""),
             "Почему релевантно": row.get("why_relevant", ""),
@@ -45,7 +77,7 @@ def _records_to_dataframe(records: list[ArticleRecord]) -> pd.DataFrame:
     return pd.DataFrame(preview_rows)
 
 
-def _build_source_dashboard(records: list[ArticleRecord], report: ScrapeReport) -> pd.DataFrame:
+def _build_source_dashboard(report: ScrapeReport) -> pd.DataFrame:
     rows = []
     for source in sorted(set(report.source_candidate_counts) | set(report.source_record_counts)):
         rows.append(
@@ -55,7 +87,30 @@ def _build_source_dashboard(records: list[ArticleRecord], report: ScrapeReport) 
                 "Сохранено": report.source_record_counts.get(source, 0),
             }
         )
+    if not rows:
+        return _placeholder_dataframe(
+            ["Источник", "Кандидатов", "Сохранено"],
+            "Данные по источникам появятся после завершения сбора.",
+        )
     return pd.DataFrame(rows)
+
+
+def _build_query_dashboard(rows: list[dict[str, object]]) -> pd.DataFrame:
+    counter: Counter[str] = Counter()
+    for row in rows:
+        matched_terms = str(row.get("keywords", "")).strip()
+        if not matched_terms:
+            continue
+        for term in [item.strip() for item in matched_terms.split(",") if item.strip()]:
+            counter[term] += 1
+
+    dashboard_rows = [{"Слово поиска": term, "Статей": count} for term, count in counter.most_common()]
+    if not dashboard_rows:
+        return _placeholder_dataframe(
+            ["Слово поиска", "Статей"],
+            "Статистика по словам поиска появится, когда найдутся статьи по теме.",
+        )
+    return pd.DataFrame(dashboard_rows)
 
 
 def _build_author_dashboard(records: list[ArticleRecord]) -> pd.DataFrame:
@@ -64,13 +119,30 @@ def _build_author_dashboard(records: list[ArticleRecord]) -> pd.DataFrame:
         authors = split_authors(record.authors)
         if not authors:
             continue
-        primary_author = parse_author_name(authors[0])
-        surname = str(primary_author.get("surname", "")).strip()
-        if surname:
-            counter[surname] += 1
+        for author in authors:
+            parsed_author = parse_author_name(author)
+            surname = str(parsed_author.get("surname", "")).strip()
+            if surname:
+                counter[surname] += 1
 
     rows = [{"Фамилия автора": surname, "Статей": count} for surname, count in counter.most_common(15)]
+    if not rows:
+        return _placeholder_dataframe(
+            ["Фамилия автора", "Статей"],
+            "Популярные авторы появятся после завершения сбора.",
+        )
     return pd.DataFrame(rows)
+
+
+def _build_stats_markdown(report: ScrapeReport, found: int, total: int, processed: int) -> str:
+    return (
+        "### Сводка дашборда\n"
+        f"- Кандидатов собрано: **{report.total_candidates or total}**\n"
+        f"- Обработано: **{report.processed_candidates or processed}**\n"
+        f"- Итоговых статей: **{found}**\n"
+        f"- Исключено: **{len(report.exclusion_rows)}**\n"
+        f"- Ошибок/неразобранных: **{report.skipped_parse}**"
+    )
 
 
 def _status_text(stage: str, processed: int, total: int, found: int) -> str:
@@ -104,6 +176,8 @@ def run_scraping_stream(
     author: str,
     exclude: str,
     manual_urls: str,
+    search_languages: list[str] | None,
+    search_countries: list[str] | None,
     year_from: str,
     year_to: str,
     max_candidates: int,
@@ -138,6 +212,8 @@ def run_scraping_stream(
         manual_urls_raw=manual_urls,
         output_dir=output_dir,
         selected_sources=tuple(selected_sources or ()),
+        search_languages=tuple(search_languages or ("ru",)),
+        search_countries=tuple(search_countries or ("ru",)),
     )
 
     def worker() -> None:
@@ -161,6 +237,8 @@ def run_scraping_stream(
         _status_text(stage, processed, total, found),
         "Готовлю задачу и запускаю парсер.",
         "",
+        "### Сводка дашборда\n- Пока ещё нет данных. Запускаю сбор.",
+        pd.DataFrame(),
         pd.DataFrame(),
         pd.DataFrame(),
         pd.DataFrame(),
@@ -200,13 +278,18 @@ def run_scraping_stream(
                 processed = total or processed
                 stage = "done"
                 log_text = "\n".join(logs)
-                table = _records_to_dataframe(records)
-                source_table = _build_source_dashboard(records, report)
+                rows = build_export_rows(records)
+                table = _build_preview_dataframe(rows)
+                source_table = _build_source_dashboard(report)
+                query_table = _build_query_dashboard(rows)
                 author_table = _build_author_dashboard(records)
+                stats_markdown = _build_stats_markdown(report, found, total, processed)
                 summary_prefix = "Сбор остановлен пользователем." if report.cancelled else "Сбор завершён."
                 summary = (
                     f"{summary_prefix} Итоговых статей: {found}\n"
                     f"Исключено записей: {len(report.exclusion_rows)}\n"
+                    f"Языки поиска: {', '.join(SEARCH_LANGUAGE_LABELS.get(code, code) for code in (search_languages or ['ru']))} | "
+                    f"Страны поиска: {', '.join(SEARCH_COUNTRY_LABELS.get(code, code) for code in (search_countries or ['ru']))}\n"
                     "XLSX содержит 3 листа: кратко, с абстрактом и с полным текстом. CSV/JSON содержат полный текст.\n"
                     f"Файлы сохранены в: {output_dir}"
                 )
@@ -216,8 +299,10 @@ def run_scraping_stream(
                     _status_text(stage, processed, total, found),
                     summary,
                     log_text,
+                    stats_markdown,
                     table,
                     source_table,
+                    query_table,
                     author_table,
                     str(paths["xlsx"]),
                     str(paths["csv"]),
@@ -238,9 +323,11 @@ def run_scraping_stream(
                     _status_text(stage, processed, total, found),
                     error_message,
                     "\n".join(logs),
-                    _records_to_dataframe(records),
-                    pd.DataFrame(),
-                    pd.DataFrame(),
+                    _build_stats_markdown(ScrapeReport(), found, total, processed),
+                    _build_preview_dataframe([]),
+                    _build_source_dashboard(ScrapeReport()),
+                    _build_query_dashboard([]),
+                    _build_author_dashboard([]),
                     None,
                     None,
                     None,
@@ -257,9 +344,11 @@ def run_scraping_stream(
                 _status_text(stage, processed, total, found),
                 summary,
                 "\n".join(logs),
-                _records_to_dataframe(records),
-                pd.DataFrame(),
-                pd.DataFrame(),
+                _build_stats_markdown(ScrapeReport(total_candidates=total, processed_candidates=processed), found, total, processed),
+                _build_preview_dataframe([]),
+                _build_source_dashboard(ScrapeReport(total_candidates=total, processed_candidates=processed)),
+                _build_query_dashboard([]),
+                _build_author_dashboard([]),
                 None,
                 None,
                 None,
@@ -282,7 +371,7 @@ def build_app() -> gr.Blocks:
             <div class="app-shell hero">
               <p>Browser UI on Gradio</p>
               <h1>CyberLeninka Scraper</h1>
-              <p>Ищите статьи, следите за логом в реальном времени и скачивайте результаты без отдельного desktop-окна.</p>
+              <p>Ищите статьи по нескольким источникам, следите за прогрессом и скачивайте аккуратно разложенные результаты без отдельного desktop-окна.</p>
             </div>
             """
         )
@@ -315,6 +404,17 @@ def build_app() -> gr.Blocks:
                     value=list(SUPPORTED_SEARCH_SOURCES),
                 )
                 with gr.Row():
+                    search_languages = gr.CheckboxGroup(
+                        label="Языки поиска",
+                        choices=LANGUAGE_CHOICES,
+                        value=["ru"],
+                    )
+                    search_countries = gr.CheckboxGroup(
+                        label="Страны поиска",
+                        choices=COUNTRY_CHOICES,
+                        value=["ru"],
+                    )
+                with gr.Row():
                     year_from = gr.Textbox(label="Год от", value="2020")
                     year_to = gr.Textbox(label="Год до", value="2026")
                     max_candidates = gr.Slider(
@@ -327,35 +427,57 @@ def build_app() -> gr.Blocks:
                 start_button = gr.Button("Запустить сбор", variant="primary", size="lg")
                 stop_button = gr.Button("Остановить и выгрузить текущее", variant="secondary", size="lg")
 
-            with gr.Column(scale=3):
+            with gr.Column(scale=6):
                 status = gr.Textbox(label="Статус", value="Ожидает запуска", lines=3)
                 summary = gr.Textbox(
                     label="Сводка",
                     value="После запуска здесь появится ход выполнения и итог по результатам.",
                     lines=4,
                 )
-                xlsx_file = gr.File(label="XLSX (3 листа: кратко / абстракт / полный текст)", interactive=False)
-                csv_file = gr.File(label="CSV (с полным текстом)", interactive=False)
-                json_file = gr.File(label="JSON (с полным текстом)", interactive=False)
-                excluded_csv_file = gr.File(label="Отчёт по исключениям CSV", interactive=False)
-                excluded_json_file = gr.File(label="Отчёт по исключениям JSON", interactive=False)
-                unparsed_csv_file = gr.File(label="Найдено, но не разобрано CSV", interactive=False)
-                unparsed_json_file = gr.File(label="Найдено, но не разобрано JSON", interactive=False)
+                stats_markdown = gr.Markdown("### Сводка дашборда\n- После запуска здесь появятся ключевые метрики.")
+                with gr.Tabs():
+                    with gr.Tab("Результаты"):
+                        table = gr.Dataframe(label="Предпросмотр результатов", interactive=False, wrap=True)
+                    with gr.Tab("Дашборды"):
+                        with gr.Row():
+                            source_dashboard = gr.Dataframe(label="По источникам", interactive=False, wrap=True)
+                            query_dashboard = gr.Dataframe(label="По словам поиска", interactive=False, wrap=True)
+                        author_dashboard = gr.Dataframe(
+                            label="Популярные авторы среди найденных статей",
+                            interactive=False,
+                            wrap=True,
+                        )
+                    with gr.Tab("Лог выполнения"):
+                        logs = gr.Textbox(label="Лог выполнения", lines=20, autoscroll=True)
 
-        logs = gr.Textbox(label="Лог выполнения", lines=18, autoscroll=True)
-        table = gr.Dataframe(label="Предпросмотр результатов", interactive=False, wrap=True)
-        source_dashboard = gr.Dataframe(label="Дашборд по источникам", interactive=False, wrap=True)
-        author_dashboard = gr.Dataframe(label="Популярные фамилии первых авторов", interactive=False, wrap=True)
+            with gr.Column(scale=3):
+                gr.Markdown(
+                    """
+                    ### Скачать результаты
+                    Основные файлы собраны отдельно от служебных отчётов, чтобы правая часть интерфейса не перегружала экран.
+                    """
+                )
+                with gr.Accordion("Основные выгрузки", open=True):
+                    xlsx_file = gr.File(label="XLSX (3 листа: кратко / абстракт / полный текст)", interactive=False)
+                    csv_file = gr.File(label="CSV (с полным текстом)", interactive=False)
+                    json_file = gr.File(label="JSON (с полным текстом)", interactive=False)
+                with gr.Accordion("Служебные отчёты", open=False):
+                    excluded_csv_file = gr.File(label="Отчёт по исключениям CSV", interactive=False)
+                    excluded_json_file = gr.File(label="Отчёт по исключениям JSON", interactive=False)
+                    unparsed_csv_file = gr.File(label="Найдено, но не разобрано CSV", interactive=False)
+                    unparsed_json_file = gr.File(label="Найдено, но не разобрано JSON", interactive=False)
 
         start_button.click(
             fn=run_scraping_stream,
-            inputs=[query, author, exclude, manual_urls, year_from, year_to, max_candidates, selected_sources],
+            inputs=[query, author, exclude, manual_urls, search_languages, search_countries, year_from, year_to, max_candidates, selected_sources],
             outputs=[
                 status,
                 summary,
                 logs,
+                stats_markdown,
                 table,
                 source_dashboard,
+                query_dashboard,
                 author_dashboard,
                 xlsx_file,
                 csv_file,
@@ -390,9 +512,11 @@ def launch_gradio_app() -> None:
             neutral_hue="slate",
         ),
         css="""
-        .app-shell {max-width: 1180px; margin: 0 auto;}
-        .hero {padding: 12px 0 6px 0;}
-        .hero h1 {font-size: 2.4rem; margin-bottom: 0.3rem;}
-        .hero p {opacity: 0.85;}
+        .app-shell {max-width: 1280px; margin: 0 auto;}
+        .hero {padding: 12px 0 8px 0;}
+        .hero h1 {font-size: 2.3rem; margin-bottom: 0.3rem;}
+        .hero p {opacity: 0.85; max-width: 880px;}
+        .gradio-container .block-label {font-weight: 600;}
+        .gradio-container .gr-panel {border-radius: 18px;}
         """,
     )
